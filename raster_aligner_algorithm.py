@@ -243,20 +243,35 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
             norm_arr.append(temp)
         return norm_arr
 
+    def image_histogram_equalization(self, image, number_bins=256):
+        # from http://www.janeriksolem.net/histogram-equalization-with-python-and.html
+
+        # get image histogram
+        image_histogram, bins = np.histogram(image.flatten(), number_bins, density=True)
+        cdf = image_histogram.cumsum() # cumulative distribution function
+        cdf = 255 * cdf / cdf[-1] # normalize
+
+        # use linear interpolation of cdf to find new pixel values
+        image_equalized = np.interp(image.flatten(), bins[:-1], cdf)
+
+        return image_equalized.reshape(image.shape) #, cdf
 
 import numpy as np
 ff="C:\\Users\\FrancescoAdmin\\AppData\\Roaming\\QGIS\\QGIS3\\profiles\\default\\python\\plugins\\RasterAligner\\Landsat8Padova.tif"
 gd = gdal.Open(ff, gdal.GA_ReadOnly)
 arr = gd.ReadAsArray()
-normIm = np.array( normalize(None, arr, 0, 255), np.uint8)
+normIm = np.array( RasterAlignerAlgorithm.image_histogram_equalization(None,
+    np.array( RasterAlignerAlgorithm.normalize(None, arr, 0, 255), np.uint8)
+), np.uint8)
+
 
 surf = cv.xfeatures2d.SURF_create(400)
-surf.setUpright(True)  # faster ignores orientation
-surf.setExtended(True)
-kp, des = surf.detectAndCompute(img, None)
+# surf.setUpright(True)  # faster ignores orientation
+# surf.setExtended(True)
+# kp, des = surf.detectAndCompute(img, None)
 
-window_name = 'image'
-cv.imshow(window_name, normIm)
-cv.waitKey(0)
-cv.destroyAllWindows()
+# window_name = 'image'
+# cv.imshow(window_name, normIm)
+# cv.waitKey(0)
+# cv.destroyAllWindows()
 

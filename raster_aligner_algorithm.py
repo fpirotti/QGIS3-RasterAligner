@@ -32,9 +32,10 @@ __revision__ = '$Format:%H$'
 
 
 
+
 import inspect
 import cv2 as cv
-
+import gdal
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import *
 from qgis.utils import *
@@ -61,7 +62,9 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
     INPUTmaster = 'INPUTmaster'
     INPUTslaves = 'INPUTslaves'
-
+    gdal.AllRegister()
+    # this allows GDAL to throw Python Exceptions
+    gdal.UseExceptions()
     def initAlgorithm(self, config):
         """
         Here we define the inputs and output of the algorithm, along
@@ -94,6 +97,15 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
+    def layerAsArray(self, layer, feedback):
+        """ read the data from a single-band layer into a numpy/Numeric array.
+        Only works for gdal layers!
+        """
+        feedback.pushInfo(layer)
+        gd = gdal.Open(str(layer), gdal.GA_ReadOnly)
+        array = gd.ReadAsArray()
+        return array
+
     def icon(self):
         cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
         icon = QIcon(os.path.join(os.path.join(cmd_folder, 'logo.png')))
@@ -112,7 +124,6 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
             (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT,
                                                    context, source.fields(), source.wkbType(), source.sourceCrs())
 
-        print("nnnnnnnnn")
         # Compute the number of steps to display within the progress bar and
         # get features from source
         #total = 100.0 / source.featureCount() if source.featureCount() else 0
@@ -120,19 +131,33 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
 
         dest_id="...."
         #lyr = self.parameterAsFile(parameters, self.INPUTmaster, context)
-        lyr = self.parameterDefinition('INPUTmaster').valueAsPythonString(parameters['INPUTmaster'], context)
+        lyr = self.parameterDefinition('INPUTmaster').valueAsPythonString(parameters['INPUTmaster'], context).strip("'")
         feedback.pushInfo(".............")
         feedback.pushInfo(lyr)
 
         if lyr is not None and lyr is not None:
             feedback.pushInfo(".............")
-            #gray = cv.imread(lyr)
-            #if len(gray.shape) == 3:
-            #    gray = cv.cvtColor(gray, cv.COLOR_BGR2GRAY)
+            gray = self.layerAsArray(lyr, feedback)
 
-            #sift = cv.SIFT_create()
-            #kp, des = sift.detectAndCompute(gray, None)
-            #feedback.pushInfo(kp.size)
+            if gray is None:
+                feedback.pushInfo("Not able to read "+lyr+" file")
+                return
+
+            if gray.size == 3:
+                feedback.pushInfo("Converting to gray scale for SIFT")
+                gray = cv.cvtColor(gray, cv.COLOR_BGR2GRAY)
+
+            sift = cv.SIFT_create()
+
+            surf = cv.xfeatures2d.SURF_create(400)
+            surf.setUpright(True) # faster ignores orientation
+            surf.setExtended(True)
+            kp, des = surf.detectAndCompute(img, None)
+            surf.setHessianThreshold(500)
+
+            feedback.pushInfo("Detecting and computing SIFT")
+            kp, des = sift.detectAndCompute(gray, None)
+            feedback.pushInfo(kp.size)
         # fett = []
         # nmealayer = QgsVectorLayer("Point", layername, "memory")
         # for a, point in enumerate(kp):
@@ -206,3 +231,32 @@ class RasterAlignerAlgorithm(QgsProcessingAlgorithm):
 
     def createInstance(self):
         return RasterAlignerAlgorithm()
+
+    def normalize(self, imgnp, t_min, t_max):
+        norm_arr = []
+        diff = t_max - t_min
+        diff_arr = arr.max() - arr.min()
+        min = arr.min()
+
+        for i in arr:
+            temp = (((i - min) * diff) / diff_arr) + t_min
+            norm_arr.append(temp)
+        return norm_arr
+
+
+import numpy as np
+ff="C:\\Users\\FrancescoAdmin\\AppData\\Roaming\\QGIS\\QGIS3\\profiles\\default\\python\\plugins\\RasterAligner\\Landsat8Padova.tif"
+gd = gdal.Open(ff, gdal.GA_ReadOnly)
+arr = gd.ReadAsArray()
+normIm = np.array( normalize(None, arr, 0, 255), np.uint8)
+
+surf = cv.xfeatures2d.SURF_create(400)
+surf.setUpright(True)  # faster ignores orientation
+surf.setExtended(True)
+kp, des = surf.detectAndCompute(img, None)
+
+window_name = 'image'
+cv.imshow(window_name, normIm)
+cv.waitKey(0)
+cv.destroyAllWindows()
+
